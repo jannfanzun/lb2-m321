@@ -1,4 +1,3 @@
-// PUSH: Noah
 const USER_SERVICE_URL = 'http://192.168.178.54:3001';
 const GAME_SERVICE_URL = 'http://192.168.178.54:3002';
 
