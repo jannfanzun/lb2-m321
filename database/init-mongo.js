@@ -1,4 +1,3 @@
-// PUSH: Jann
 // MongoDB initialization script
 db = db.getSiblingDB('tictactoe');
 

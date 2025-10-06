@@ -1,4 +1,3 @@
-// PUSH: Jann
 require('dotenv').config();
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
