@@ -23,6 +23,7 @@ const joinGameBtn = document.getElementById('join-game-btn');
 const logoutBtn = document.getElementById('logout-btn');
 const backToLobbyBtn = document.getElementById('back-to-lobby-btn');
 const playAgainBtn = document.getElementById('play-again-btn');
+const leaveGameBtn = document.getElementById('leave-game-btn');
 const board = document.getElementById('board');
 const cells = document.querySelectorAll('.cell');
 const gameIdDisplay = document.getElementById('game-id');
@@ -306,9 +307,75 @@ backToLobbyBtn.addEventListener('click', () => {
     showLobby();
 });
 
-playAgainBtn.addEventListener('click', () => {
+playAgainBtn.addEventListener('click', async () => {
     winnerModal.style.display = 'none';
-    if (socket) socket.disconnect();
+
+    // Store old game ID
+    const oldGameId = currentGameId;
+
+    // Reset board and game state first
+    cells.forEach(cell => {
+        cell.textContent = '';
+        cell.className = 'cell';
+    });
+
+    // Disconnect from old game AFTER storing the ID
+    if (socket) {
+        if (oldGameId) {
+            socket.emit('game:leave', { gameId: oldGameId, playerId: userId });
+        }
+        socket.disconnect();
+        socket = null;
+    }
+
+    // Reset state
+    currentGameId = null;
+    playerSymbol = null;
+
+    // Create new game automatically
+    try {
+        const response = await fetch(`${GAME_SERVICE_URL}/api/games/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ player1_id: userId })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            currentGameId = data.game._id;
+            playerSymbol = 'X';
+            gameIdDisplay.textContent = currentGameId;
+            gameIdSection.style.display = 'block';
+            gameSection.style.display = 'none';
+
+            // Connect socket for new game
+            connectSocket();
+
+            // Show lobby with new game waiting
+            showLobby();
+        } else {
+            alert(data.error || 'Failed to create game');
+            showLobby();
+        }
+    } catch (error) {
+        alert('Error connecting to server');
+        showLobby();
+    }
+});
+
+leaveGameBtn.addEventListener('click', () => {
+    winnerModal.style.display = 'none';
+
+    // Disconnect from game
+    if (socket) {
+        if (currentGameId) {
+            socket.emit('game:leave', { gameId: currentGameId, playerId: userId });
+        }
+        socket.disconnect();
+    }
+
+    // Reset everything
     currentGameId = null;
     playerSymbol = null;
     cells.forEach(cell => {

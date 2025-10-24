@@ -306,6 +306,25 @@ a:hover {
     font-weight: 700;
 }
 
+.modal-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+}
+
+.modal-buttons button {
+    width: 100%;
+}
+
+.secondary-btn {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.secondary-btn:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+}
+
 #back-to-lobby-btn {
     background: rgba(255, 255, 255, 0.1);
     margin-top: 16px;
