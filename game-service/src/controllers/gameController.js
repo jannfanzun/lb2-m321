@@ -38,6 +38,11 @@ exports.joinGame = async (req, res) => {
       return res.status(400).json({ error: 'Game already started or finished' });
     }
 
+    // Prevent player from joining their own game
+    if (game.player1_id === player2_id) {
+      return res.status(400).json({ error: 'You cannot join your own game' });
+    }
+
     game.player2_id = player2_id;
     game.status = 'active';
     await game.save();
