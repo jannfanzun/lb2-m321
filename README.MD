@@ -248,45 +248,168 @@ python3 -m http.server 8080
 
 ## Im gleichen Netzwerk spielen
 
-### Option 1: Beide mit Docker (EINFACHSTE METHODE)
+### ⚠️ WICHTIG: Voraussetzungen
+
+**Beide Spieler müssen im SELBEN WLAN/Netzwerk sein!**
+- Verbindet euch beide mit demselben WLAN (z.B. "HomeNetwork")
+- Hotspot funktioniert auch: Einer erstellt einen Hotspot, der andere verbindet sich
+- **NICHT über Internet** - nur lokales Netzwerk!
+
+### Schritt-für-Schritt Anleitung (MIT DOCKER)
+
+#### Schritt 1: Firewall-Einstellungen (SEHR WICHTIG!)
+
+**macOS (Host-Computer) - Terminal Methode:**
+```bash
+# Firewall temporär ausschalten (NUR zum Testen!)
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+
+# Firewall wieder einschalten
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
+
+# Docker erlauben (nachdem Firewall wieder an ist)
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /Applications/Docker.app/Contents/MacOS/Docker
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /Applications/Docker.app/Contents/MacOS/Docker
+
+# Firewall Status prüfen
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+```
+
+**macOS (GUI Methode):**
+1. System Settings → Network → Firewall
+2. Falls Firewall AN ist:
+   - Klicke "Options"
+   - Stelle sicher, "Block all incoming connections" ist NICHT aktiviert
+3. **ODER** Firewall komplett ausschalten (nur zum Testen):
+   - Firewall → OFF
+
+**Windows (Host-Computer) - Terminal Methode (PowerShell als Administrator):**
+```powershell
+# Port 8080 freigeben
+New-NetFirewallRule -DisplayName "TicTacToe Web Client" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow
+
+# Port 3000 freigeben
+New-NetFirewallRule -DisplayName "TicTacToe API Gateway" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow
+
+# Regeln anzeigen
+Get-NetFirewallRule -DisplayName "TicTacToe*"
+
+# Regeln wieder löschen (falls nötig)
+Remove-NetFirewallRule -DisplayName "TicTacToe Web Client"
+Remove-NetFirewallRule -DisplayName "TicTacToe API Gateway"
+
+# ODER: Firewall komplett ausschalten (nur zum Testen!)
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+
+# Firewall wieder einschalten
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
+```
+
+**Windows (GUI Methode):**
+1. Windows Defender Firewall → Erweiterte Einstellungen
+2. Eingehende Regeln → Neue Regel → Port
+3. TCP, Port 8080 hinzufügen
+4. "Verbindung zulassen" wählen
+5. Profil: Privat UND Öffentlich aktivieren
+6. Wiederholen für Port 3000
+
+#### Schritt 2: Docker starten (Host-Computer)
+
+```bash
+# Im Projektordner
+docker-compose up -d
+
+# Warte bis alles läuft
+docker-compose ps
+```
+
+#### Schritt 3: IP-Adresse finden (Host-Computer)
+
+```bash
+# macOS/Linux
+ifconfig | grep "inet " | grep -v 127.0.0.1
+
+# Windows (PowerShell)
+ipconfig | findstr IPv4
+
+# Windows (CMD)
+ipconfig
+```
+
+Beispiel-Output:
+```
+inet 192.168.1.100 netmask 0xffffff00 broadcast 192.168.1.255
+```
+→ Deine IP ist: **192.168.1.100**
+
+#### Schritt 4: Verbindung testen (Kollege)
+
+**Auf dem Computer deines Kollegen:**
+
+1. Öffne Browser
+2. Gehe zu: `http://192.168.1.100:8080` (ersetze mit deiner IP!)
+3. Wenn es **NICHT** funktioniert:
+   - Prüfe ob beide im selben WLAN sind
+   - Prüfe Firewall-Einstellungen nochmal
+   - Teste ob Port erreichbar ist: `telnet 192.168.1.100 8080`
+
+#### Schritt 5: Spielen!
+
+1. **Host (du):**
+   - Gehe zu `http://localhost:8080`
+   - Registriere dich (z.B. User "Noah")
+   - Login
+   - Klicke "Create Game"
+   - **WICHTIG:** Kopiere die Game ID (z.B. `507f1f77bcf86cd799439011`)
+
+2. **Kollege:**
+   - Gehe zu `http://192.168.1.100:8080` (deine IP!)
+   - Registriere dich (z.B. User "Jann")
+   - Login
+   - Gib die Game ID ein die du bekommen hast
+   - Klicke "Join Game"
+
+3. **Viel Spass!** 🎮
+
+### Alternative: Hotspot verwenden
+
+Falls ihr kein gemeinsames WLAN habt:
 
 1. **Host-Computer:**
-   - Starte das Projekt mit `docker-compose up -d`
-   - Finde deine lokale IP-Adresse:
-     ```bash
-     # macOS/Linux
-     ifconfig | grep "inet "
+   - Erstelle einen Hotspot (z.B. "TicTacToe-Game")
+   - Windows: Einstellungen → Netzwerk → Mobiler Hotspot
+   - macOS: System Preferences → Sharing → Internet Sharing
 
-     # Windows
-     ipconfig
-     ```
-   - Deine IP sieht z.B. so aus: `192.168.1.100`
+2. **Kollege:**
+   - Verbinde dich mit dem Hotspot
+   - Folge Schritt 3-5 von oben
 
-2. **Kollege im gleichen WLAN:**
-   - Öffne Browser und gehe zu: `http://192.168.1.100:8080`
-   - (Ersetze `192.168.1.100` mit der IP des Host-Computers)
+### Häufige Probleme beim Netzwerk-Spielen
 
-### Option 2: Localhost anpassen für Netzwerk-Zugriff
+#### Problem: "Connection refused" oder Seite lädt nicht
+**Lösung:**
+```bash
+# 1. Prüfe ob Docker läuft auf Host
+docker-compose ps
 
-Falls ihr **nicht** Docker nutzt, musst du die URLs im Frontend anpassen:
+# 2. Prüfe ob Ports offen sind (auf Host-Computer)
+# macOS/Linux:
+lsof -i :8080
+lsof -i :3000
 
-1. Öffne `web-client/app.js`
-2. Ändere die URLs:
-   ```javascript
-   // Von:
-   const USER_SERVICE_URL = 'http://localhost:3000';
-   const GAME_SERVICE_URL = 'http://localhost:3000';
+# Windows:
+netstat -an | findstr 8080
+netstat -an | findstr 3000
 
-   // Zu (ersetze mit deiner lokalen IP):
-   const USER_SERVICE_URL = 'http://192.168.1.100:3000';
-   const GAME_SERVICE_URL = 'http://192.168.1.100:3000';
-   ```
+# 3. Firewall temporär ausschalten zum Testen
+# Wenn es dann funktioniert → Firewall-Regel fehlt!
+```
 
-### Firewall-Einstellungen
-
-Stelle sicher, dass die Ports freigegeben sind:
-- **macOS:** System Settings → Network → Firewall → Optionen → Ports 3000, 8080 erlauben
-- **Windows:** Windows Defender Firewall → Eingehende Regeln → Neue Regel für Ports 3000, 8080
+#### Problem: Kann Game nicht beitreten
+**Lösung:**
+- Prüfe ob Game ID richtig kopiert wurde (keine Leerzeichen!)
+- Beide Spieler müssen eingeloggt sein
+- Spiel darf noch keinen 2. Spieler haben
 
 ## Spielablauf
 
