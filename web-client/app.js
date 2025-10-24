@@ -1,5 +1,5 @@
-const USER_SERVICE_URL = 'http://192.168.178.54:3001';
-const GAME_SERVICE_URL = 'http://192.168.178.54:3002';
+const USER_SERVICE_URL = 'http://localhost:3000';
+const GAME_SERVICE_URL = 'http://localhost:3000';
 
 let token = localStorage.getItem('token');
 let userId = localStorage.getItem('userId');

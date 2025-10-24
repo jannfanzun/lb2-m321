@@ -137,3 +137,222 @@ tic-tac-toe-distributed/
 - Performance-Metriken (Antwortzeiten, aktive Spiele)
 - Error-Tracking und Alerting
 - Health-Check-Endpoints für alle Services
+
+---
+
+# 🚀 Installation & Setup
+
+## Voraussetzungen
+
+- **Docker Desktop** installiert und gestartet ([Download](https://www.docker.com/products/docker-desktop))
+- **Git** installiert
+- **Node.js 18+** (nur für lokale Entwicklung ohne Docker)
+- **MongoDB** (nur für lokale Entwicklung ohne Docker)
+
+## Schnellstart mit Docker (EMPFOHLEN)
+
+### 1. Repository klonen
+```bash
+git clone <repository-url>
+cd lb2-m321
+```
+
+### 2. Docker Desktop starten
+- Stelle sicher, dass Docker Desktop läuft
+- Öffne Docker Desktop und warte bis es vollständig gestartet ist
+
+### 3. Projekt starten
+```bash
+docker-compose up -d
+```
+
+### 4. Anwendung öffnen
+Öffne deinen Browser und gehe zu: **http://localhost:8080**
+
+### 5. Projekt stoppen
+```bash
+docker-compose down
+```
+
+### 6. Projekt neu starten (nach Code-Änderungen)
+```bash
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+## Services & Ports
+
+Nach dem Start laufen folgende Services:
+
+| Service | URL | Beschreibung |
+|---------|-----|--------------|
+| **Web Client** | http://localhost:8080 | Frontend (Spieloberfläche) |
+| **API Gateway** | http://localhost:3000 | API Routing |
+| **User Service** | http://localhost:3001 | Benutzerverwaltung |
+| **Game Service** | http://localhost:3002 | Spiellogik |
+| **MongoDB** | localhost:27017 | Datenbank |
+
+## Lokale Entwicklung ohne Docker
+
+Falls du ohne Docker entwickeln möchtest:
+
+### 1. MongoDB starten
+```bash
+# macOS mit Homebrew
+brew services start mongodb-community
+
+# Windows - MongoDB Service starten
+net start MongoDB
+
+# Linux
+sudo systemctl start mongod
+```
+
+### 2. Dependencies installieren
+```bash
+# In jedem Service-Ordner ausführen
+cd api-gateway && npm install
+cd ../user-service && npm install
+cd ../game-service && npm install
+```
+
+### 3. Environment-Variablen erstellen
+Die `.env.example` Dateien sind bereits vorhanden. Sie wurden automatisch zu `.env` kopiert.
+
+### 4. Services starten (4 verschiedene Terminals)
+
+**Terminal 1 - API Gateway:**
+```bash
+cd api-gateway
+npm start
+```
+
+**Terminal 2 - User Service:**
+```bash
+cd user-service
+npm start
+```
+
+**Terminal 3 - Game Service:**
+```bash
+cd game-service
+npm start
+```
+
+**Terminal 4 - Web Client:**
+```bash
+cd web-client
+python3 -m http.server 8080
+```
+
+## Im gleichen Netzwerk spielen
+
+### Option 1: Beide mit Docker (EINFACHSTE METHODE)
+
+1. **Host-Computer:**
+   - Starte das Projekt mit `docker-compose up -d`
+   - Finde deine lokale IP-Adresse:
+     ```bash
+     # macOS/Linux
+     ifconfig | grep "inet "
+
+     # Windows
+     ipconfig
+     ```
+   - Deine IP sieht z.B. so aus: `192.168.1.100`
+
+2. **Kollege im gleichen WLAN:**
+   - Öffne Browser und gehe zu: `http://192.168.1.100:8080`
+   - (Ersetze `192.168.1.100` mit der IP des Host-Computers)
+
+### Option 2: Localhost anpassen für Netzwerk-Zugriff
+
+Falls ihr **nicht** Docker nutzt, musst du die URLs im Frontend anpassen:
+
+1. Öffne `web-client/app.js`
+2. Ändere die URLs:
+   ```javascript
+   // Von:
+   const USER_SERVICE_URL = 'http://localhost:3000';
+   const GAME_SERVICE_URL = 'http://localhost:3000';
+
+   // Zu (ersetze mit deiner lokalen IP):
+   const USER_SERVICE_URL = 'http://192.168.1.100:3000';
+   const GAME_SERVICE_URL = 'http://192.168.1.100:3000';
+   ```
+
+### Firewall-Einstellungen
+
+Stelle sicher, dass die Ports freigegeben sind:
+- **macOS:** System Settings → Network → Firewall → Optionen → Ports 3000, 8080 erlauben
+- **Windows:** Windows Defender Firewall → Eingehende Regeln → Neue Regel für Ports 3000, 8080
+
+## Spielablauf
+
+1. **Registrierung**: Beide Spieler müssen sich registrieren
+2. **Spiel erstellen**: Spieler 1 klickt auf "Create Game" → erhält Game ID
+3. **Spiel beitreten**: Spieler 2 gibt die Game ID ein und klickt "Join Game"
+4. **Spielen**: Spieler X beginnt, dann abwechselnd
+5. **Gewinner**: Das Spiel endet automatisch bei Gewinn oder Unentschieden
+
+## Troubleshooting
+
+### Problem: "Cannot connect to Docker daemon"
+**Lösung:** Starte Docker Desktop
+
+### Problem: "Address already in use"
+**Lösung:**
+```bash
+# Ports freigeben
+docker-compose down
+lsof -ti:3000,3001,3002,8080 | xargs kill -9
+```
+
+### Problem: Registrierung hängt/keine Response
+**Lösung:**
+```bash
+# Container neu bauen
+docker-compose down
+docker-compose build --no-cache api-gateway
+docker-compose up -d
+```
+
+### Problem: MongoDB Connection Error
+**Lösung:**
+```bash
+# Warte bis MongoDB healthy ist
+docker-compose ps
+# Wenn MongoDB nicht healthy ist:
+docker-compose restart mongodb
+```
+
+### Logs anschauen
+```bash
+# Alle Services
+docker-compose logs -f
+
+# Nur ein Service
+docker-compose logs -f api-gateway
+docker-compose logs -f user-service
+docker-compose logs -f game-service
+```
+
+## Nützliche Befehle
+
+```bash
+# Status aller Container anzeigen
+docker-compose ps
+
+# Container neu starten
+docker-compose restart
+
+# Alle Container und Volumes löschen (VORSICHT: Löscht alle Daten!)
+docker-compose down -v
+
+# In einen Container einloggen
+docker exec -it tictactoe-api-gateway sh
+
+# MongoDB Shell öffnen
+docker exec -it tictactoe-mongodb mongosh tictactoe
+```
