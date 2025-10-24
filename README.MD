@@ -259,7 +259,23 @@ python3 -m http.server 8080
 
 #### Schritt 1: Firewall-Einstellungen (SEHR WICHTIG!)
 
-**macOS (Host-Computer):**
+**macOS (Host-Computer) - Terminal Methode:**
+```bash
+# Firewall temporär ausschalten (NUR zum Testen!)
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+
+# Firewall wieder einschalten
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
+
+# Docker erlauben (nachdem Firewall wieder an ist)
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /Applications/Docker.app/Contents/MacOS/Docker
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /Applications/Docker.app/Contents/MacOS/Docker
+
+# Firewall Status prüfen
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+```
+
+**macOS (GUI Methode):**
 1. System Settings → Network → Firewall
 2. Falls Firewall AN ist:
    - Klicke "Options"
@@ -267,16 +283,35 @@ python3 -m http.server 8080
 3. **ODER** Firewall komplett ausschalten (nur zum Testen):
    - Firewall → OFF
 
-**Windows (Host-Computer):**
+**Windows (Host-Computer) - Terminal Methode (PowerShell als Administrator):**
+```powershell
+# Port 8080 freigeben
+New-NetFirewallRule -DisplayName "TicTacToe Web Client" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow
+
+# Port 3000 freigeben
+New-NetFirewallRule -DisplayName "TicTacToe API Gateway" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow
+
+# Regeln anzeigen
+Get-NetFirewallRule -DisplayName "TicTacToe*"
+
+# Regeln wieder löschen (falls nötig)
+Remove-NetFirewallRule -DisplayName "TicTacToe Web Client"
+Remove-NetFirewallRule -DisplayName "TicTacToe API Gateway"
+
+# ODER: Firewall komplett ausschalten (nur zum Testen!)
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+
+# Firewall wieder einschalten
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
+```
+
+**Windows (GUI Methode):**
 1. Windows Defender Firewall → Erweiterte Einstellungen
 2. Eingehende Regeln → Neue Regel → Port
 3. TCP, Port 8080 hinzufügen
 4. "Verbindung zulassen" wählen
 5. Profil: Privat UND Öffentlich aktivieren
 6. Wiederholen für Port 3000
-
-**Alternativ (einfacher aber unsicherer):**
-- Windows Defender Firewall → Firewall komplett ausschalten (nur zum Testen!)
 
 #### Schritt 2: Docker starten (Host-Computer)
 
