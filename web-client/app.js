@@ -208,6 +208,30 @@ function connectSocket() {
         showWinner(data.winner);
     });
 
+    socket.on('game:player-left', (data) => {
+        alert(data.message);
+        if (socket) socket.disconnect();
+        currentGameId = null;
+        playerSymbol = null;
+        cells.forEach(cell => {
+            cell.textContent = '';
+            cell.className = 'cell';
+        });
+        showLobby();
+    });
+
+    socket.on('game:player-disconnected', (data) => {
+        alert(data.message);
+        if (socket) socket.disconnect();
+        currentGameId = null;
+        playerSymbol = null;
+        cells.forEach(cell => {
+            cell.textContent = '';
+            cell.className = 'cell';
+        });
+        showLobby();
+    });
+
     socket.on('error', (error) => {
         alert(error.message);
     });
@@ -268,7 +292,11 @@ function showWinner(winner) {
 }
 
 backToLobbyBtn.addEventListener('click', () => {
-    if (socket) socket.disconnect();
+    // Notify server that player is leaving
+    if (socket && currentGameId) {
+        socket.emit('game:leave', { gameId: currentGameId, playerId: userId });
+        socket.disconnect();
+    }
     currentGameId = null;
     playerSymbol = null;
     cells.forEach(cell => {

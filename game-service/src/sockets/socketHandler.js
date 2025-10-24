@@ -2,6 +2,9 @@ const Game = require('../models/Game');
 const Move = require('../models/Move');
 const gameLogic = require('../utils/gameLogic');
 
+// Store player connections
+const playerConnections = new Map(); // playerId -> { socketId, gameId }
+
 module.exports = (io) => {
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
@@ -10,6 +13,11 @@ module.exports = (io) => {
       try {
         const { gameId, playerId } = data;
         socket.join(gameId);
+
+        // Track player connection
+        playerConnections.set(playerId, { socketId: socket.id, gameId });
+        socket.playerId = playerId;
+        socket.gameId = gameId;
 
         const game = await Game.findById(gameId);
         io.to(gameId).emit('game:update', game);
@@ -77,8 +85,64 @@ module.exports = (io) => {
       }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('game:leave', async (data) => {
+      try {
+        const { gameId, playerId } = data;
+
+        if (gameId) {
+          // Notify other player that opponent left
+          socket.to(gameId).emit('game:player-left', {
+            message: 'Your opponent has left the game',
+            playerId
+          });
+
+          // Update game status to abandoned if still active
+          const game = await Game.findById(gameId);
+          if (game && game.status === 'active') {
+            game.status = 'abandoned';
+            await game.save();
+          }
+        }
+
+        // Clean up player connection
+        if (playerId) {
+          playerConnections.delete(playerId);
+        }
+        socket.leave(gameId);
+        console.log(`Player ${playerId} left game ${gameId}`);
+      } catch (error) {
+        console.error('Error handling game leave:', error);
+      }
+    });
+
+    socket.on('disconnect', async () => {
       console.log('Client disconnected:', socket.id);
+
+      // Handle unexpected disconnect
+      const playerId = socket.playerId;
+      const gameId = socket.gameId;
+
+      if (playerId && gameId) {
+        try {
+          // Notify other player
+          socket.to(gameId).emit('game:player-disconnected', {
+            message: 'Your opponent disconnected',
+            playerId
+          });
+
+          // Update game status
+          const game = await Game.findById(gameId);
+          if (game && game.status === 'active') {
+            game.status = 'abandoned';
+            await game.save();
+          }
+
+          // Clean up
+          playerConnections.delete(playerId);
+        } catch (error) {
+          console.error('Error handling disconnect:', error);
+        }
+      }
     });
   });
 };
