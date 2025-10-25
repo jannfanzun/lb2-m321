@@ -17,25 +17,141 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3002;
+let isShuttingDown = false;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+});
+
 // Database connection
-connectDB();
+connectDB().catch(err => {
+  console.error('Failed to connect to database:', err);
+  process.exit(1);
+});
 
 // Routes
 app.use('/api/games', gameRoutes);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'UP', service: 'game-service' });
+// Health check endpoint with detailed status
+app.get('/health', async (req, res) => {
+  if (isShuttingDown) {
+    return res.status(503).json({
+      status: 'SHUTTING_DOWN',
+      service: 'game-service',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  try {
+    // Check database connectivity
+    const mongo = require('mongoose');
+    const dbConnected = mongo.connection.readyState === 1;
+
+    if (!dbConnected) {
+      return res.status(503).json({
+        status: 'DOWN',
+        service: 'game-service',
+        database: 'DISCONNECTED',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Get connected clients count
+    const clientsCount = io.engine.clientsCount || 0;
+
+    res.status(200).json({
+      status: 'UP',
+      service: 'game-service',
+      database: 'CONNECTED',
+      connectedClients: clientsCount,
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'DOWN',
+      service: 'game-service',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Ready check endpoint
+app.get('/ready', (req, res) => {
+  if (isShuttingDown) {
+    return res.status(503).json({ ready: false, message: 'Service is shutting down' });
+  }
+  res.status(200).json({ ready: true });
 });
 
 // Socket.IO
 socketHandler(io);
 
+// Start server
 server.listen(PORT, () => {
-  console.log(`Game Service running on port ${PORT}`);
+  console.log(`[${new Date().toISOString()}] Game Service running on port ${PORT}`);
+});
+
+// Graceful shutdown handler
+async function gracefulShutdown(signal) {
+  console.log(`\n[${new Date().toISOString()}] Received ${signal}. Starting graceful shutdown...`);
+  isShuttingDown = true;
+
+  // Notify all connected clients
+  io.emit('server:shutdown', {
+    message: 'Server is shutting down gracefully'
+  });
+
+  // Disconnect all clients
+  io.disconnectSockets();
+
+  // Stop accepting new connections
+  server.close(async () => {
+    console.log('[' + new Date().toISOString() + '] HTTP server closed');
+
+    // Close database connection
+    try {
+      const mongo = require('mongoose');
+      await mongo.disconnect();
+      console.log('[' + new Date().toISOString() + '] MongoDB disconnected');
+    } catch (error) {
+      console.error('Error disconnecting from MongoDB:', error);
+    }
+
+    console.log('[' + new Date().toISOString() + '] Graceful shutdown complete');
+    process.exit(0);
+  });
+
+  // Force shutdown after 30 seconds
+  setTimeout(() => {
+    console.error('[' + new Date().toISOString() + '] Graceful shutdown timeout, forcing exit');
+    process.exit(1);
+  }, 30000);
+}
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('[' + new Date().toISOString() + '] Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[' + new Date().toISOString() + '] Unhandled Rejection at:', promise, 'reason:', reason);
 });

@@ -1,16 +1,18 @@
 version: '3.8'
 
 services:
-  mongodb:
+  # MongoDB Replica Set - Primary
+  mongodb-primary:
     image: mongo:7.0
-    container_name: tictactoe-mongodb
+    container_name: tictactoe-mongodb-primary
     ports:
       - "27017:27017"
     volumes:
-      - mongodb_data:/data/db
+      - mongodb_primary_data:/data/db
       - ./database/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js
     environment:
       MONGO_INITDB_DATABASE: tictactoe
+    command: mongod --replSet tictactoe-rs
     networks:
       - tictactoe-network
     healthcheck:
@@ -18,40 +20,208 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
-  user-service:
+  # MongoDB Replica Set - Secondary 1
+  mongodb-secondary-1:
+    image: mongo:7.0
+    container_name: tictactoe-mongodb-secondary-1
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb_secondary_1_data:/data/db
+    command: mongod --replSet tictactoe-rs
+    networks:
+      - tictactoe-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/tictactoe --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    depends_on:
+      - mongodb-primary
+
+  # MongoDB Replica Set - Secondary 2
+  mongodb-secondary-2:
+    image: mongo:7.0
+    container_name: tictactoe-mongodb-secondary-2
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongodb_secondary_2_data:/data/db
+    command: mongod --replSet tictactoe-rs
+    networks:
+      - tictactoe-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/tictactoe --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    depends_on:
+      - mongodb-primary
+
+  # Replica Set Initializer
+  mongo-init-replica:
+    image: mongo:7.0
+    container_name: tictactoe-mongo-init-replica
+    networks:
+      - tictactoe-network
+    entrypoint: >
+      bash -c "
+      mongosh --host mongodb-primary:27017 --eval \"
+      rs.initiate({
+        _id: 'tictactoe-rs',
+        members: [
+          { _id: 0, host: 'mongodb-primary:27017', priority: 1 },
+          { _id: 1, host: 'mongodb-secondary-1:27017', priority: 0.5 },
+          { _id: 2, host: 'mongodb-secondary-2:27017', priority: 0.5 }
+        ]
+      })
+      \"
+      "
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary-1
+      - mongodb-secondary-2
+    restart: on-failure
+
+  # User Service - Instance 1
+  user-service-1:
     build: ./user-service
-    container_name: tictactoe-user-service
+    container_name: tictactoe-user-service-1
     ports:
       - "3001:3001"
     environment:
       PORT: 3001
-      MONGODB_URI: mongodb://mongodb:27017/tictactoe
+      MONGODB_URI: mongodb://mongodb-primary:27017,mongodb-secondary-1:27017,mongodb-secondary-2:27017/tictactoe?replicaSet=tictactoe-rs
       JWT_SECRET: your-super-secret-jwt-key-change-in-production
       JWT_EXPIRES_IN: 7d
+      NODE_ENV: production
     depends_on:
-      mongodb:
-        condition: service_healthy
+      - mongodb-primary
+      - mongo-init-replica
     networks:
       - tictactoe-network
     restart: unless-stopped
+    healthcheck:
+      test: curl -f http://localhost:3001/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-  game-service:
+  # User Service - Instance 2 (Backup)
+  user-service-2:
+    build: ./user-service
+    container_name: tictactoe-user-service-2
+    ports:
+      - "3011:3001"
+    environment:
+      PORT: 3001
+      MONGODB_URI: mongodb://mongodb-primary:27017,mongodb-secondary-1:27017,mongodb-secondary-2:27017/tictactoe?replicaSet=tictactoe-rs
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+      JWT_EXPIRES_IN: 7d
+      NODE_ENV: production
+    depends_on:
+      - mongodb-primary
+      - mongo-init-replica
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+    healthcheck:
+      test: curl -f http://localhost:3001/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Game Service - Instance 1
+  game-service-1:
     build: ./game-service
-    container_name: tictactoe-game-service
+    container_name: tictactoe-game-service-1
     ports:
       - "3002:3002"
     environment:
       PORT: 3002
-      MONGODB_URI: mongodb://mongodb:27017/tictactoe
-      USER_SERVICE_URL: http://user-service:3001
+      MONGODB_URI: mongodb://mongodb-primary:27017,mongodb-secondary-1:27017,mongodb-secondary-2:27017/tictactoe?replicaSet=tictactoe-rs
+      USER_SERVICE_URL: http://user-service-lb:3001
+      NODE_ENV: production
     depends_on:
-      mongodb:
-        condition: service_healthy
+      - mongodb-primary
+      - mongo-init-replica
     networks:
       - tictactoe-network
     restart: unless-stopped
+    healthcheck:
+      test: curl -f http://localhost:3002/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
+  # Game Service - Instance 2 (Backup)
+  game-service-2:
+    build: ./game-service
+    container_name: tictactoe-game-service-2
+    ports:
+      - "3012:3002"
+    environment:
+      PORT: 3002
+      MONGODB_URI: mongodb://mongodb-primary:27017,mongodb-secondary-1:27017,mongodb-secondary-2:27017/tictactoe?replicaSet=tictactoe-rs
+      USER_SERVICE_URL: http://user-service-lb:3001
+      NODE_ENV: production
+    depends_on:
+      - mongodb-primary
+      - mongo-init-replica
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+    healthcheck:
+      test: curl -f http://localhost:3002/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Load Balancer für User Service
+  user-service-lb:
+    image: nginx:alpine
+    container_name: tictactoe-user-service-lb
+    ports:
+      - "3101:3001"
+    volumes:
+      - ./nginx/user-service-lb.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - user-service-1
+      - user-service-2
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+    healthcheck:
+      test: wget --quiet --tries=1 --spider http://localhost:3001/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Load Balancer für Game Service
+  game-service-lb:
+    image: nginx:alpine
+    container_name: tictactoe-game-service-lb
+    ports:
+      - "3102:3002"
+    volumes:
+      - ./nginx/game-service-lb.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - game-service-1
+      - game-service-2
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+    healthcheck:
+      test: wget --quiet --tries=1 --spider http://localhost:3002/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # API Gateway (Router)
   api-gateway:
     build: ./api-gateway
     container_name: tictactoe-api-gateway
@@ -59,15 +229,22 @@ services:
       - "3000:3000"
     environment:
       PORT: 3000
-      USER_SERVICE_URL: http://user-service:3001
-      GAME_SERVICE_URL: http://game-service:3002
+      USER_SERVICE_URL: http://user-service-lb:3001
+      GAME_SERVICE_URL: http://game-service-lb:3002
+      NODE_ENV: production
     depends_on:
-      - user-service
-      - game-service
+      - user-service-lb
+      - game-service-lb
     networks:
       - tictactoe-network
     restart: unless-stopped
+    healthcheck:
+      test: curl -f http://localhost:3000/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
+  # Web Client (Frontend)
   web-client:
     image: nginx:alpine
     container_name: tictactoe-web-client
@@ -80,10 +257,17 @@ services:
     networks:
       - tictactoe-network
     restart: unless-stopped
+    healthcheck:
+      test: wget --quiet --tries=1 --spider http://localhost:80/ || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
 networks:
   tictactoe-network:
     driver: bridge
 
 volumes:
-  mongodb_data:
+  mongodb_primary_data:
+  mongodb_secondary_1_data:
+  mongodb_secondary_2_data:
