@@ -66,7 +66,6 @@ const gameServiceBreaker = new CircuitBreaker('game-service', 5, 60000);
 // Middleware
 // ============================================
 app.use(cors());
-app.use(express.json());
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -116,6 +115,74 @@ app.get('/ready', (req, res) => {
 });
 
 // ============================================
+// Create Proxy Middleware Instances (Once)
+// ============================================
+
+// User Service Proxy
+const userServiceProxy = createProxyMiddleware({
+  target: process.env.USER_SERVICE_URL,
+  changeOrigin: true,
+  logLevel: 'debug',
+  onProxyReq: (proxyReq, req, res) => {
+    console.log('[User Service Proxy] Proxying request:', req.method, req.path);
+  },
+  onError: (err, req, res) => {
+    userServiceBreaker.recordFailure();
+    console.error('[User Service Error]', err.message);
+    res.status(503).json({
+      error: 'User service unavailable',
+      details: err.message
+    });
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    console.log('[User Service Proxy] Response:', proxyRes.statusCode);
+    if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
+      userServiceBreaker.recordSuccess();
+    } else if (proxyRes.statusCode >= 500) {
+      userServiceBreaker.recordFailure();
+    }
+  }
+});
+
+// Game Service Proxy
+const gameServiceProxy = createProxyMiddleware({
+  target: process.env.GAME_SERVICE_URL,
+  changeOrigin: true,
+  onError: (err, req, res) => {
+    gameServiceBreaker.recordFailure();
+    console.error('[Game Service Error]', err.message);
+    res.status(503).json({
+      error: 'Game service unavailable',
+      details: err.message
+    });
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
+      gameServiceBreaker.recordSuccess();
+    } else if (proxyRes.statusCode >= 500) {
+      gameServiceBreaker.recordFailure();
+    }
+  }
+});
+
+// WebSocket Proxy
+const websocketProxy = createProxyMiddleware({
+  target: process.env.GAME_SERVICE_URL,
+  changeOrigin: true,
+  ws: true,
+  onError: (err, req, res) => {
+    gameServiceBreaker.recordFailure();
+    console.error('[WebSocket Error]', err.message);
+    if (res) {
+      res.status(503).json({
+        error: 'WebSocket service unavailable',
+        details: err.message
+      });
+    }
+  }
+});
+
+// ============================================
 // Routes with Circuit Breaker Protection
 // ============================================
 
@@ -128,26 +195,7 @@ app.use('/api/users', (req, res, next) => {
       state: userServiceBreaker.state
     });
   }
-
-  createProxyMiddleware({
-    target: process.env.USER_SERVICE_URL,
-    changeOrigin: true,
-    onError: (err, req, res) => {
-      userServiceBreaker.recordFailure();
-      console.error('[User Service Error]', err.message);
-      res.status(503).json({
-        error: 'User service unavailable',
-        details: err.message
-      });
-    },
-    onProxyRes: (proxyRes, req, res) => {
-      if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
-        userServiceBreaker.recordSuccess();
-      } else if (proxyRes.statusCode >= 500) {
-        userServiceBreaker.recordFailure();
-      }
-    }
-  })(req, res, next);
+  userServiceProxy(req, res, next);
 });
 
 // Route to Game Service (REST API)
@@ -159,26 +207,7 @@ app.use('/api/games', (req, res, next) => {
       state: gameServiceBreaker.state
     });
   }
-
-  createProxyMiddleware({
-    target: process.env.GAME_SERVICE_URL,
-    changeOrigin: true,
-    onError: (err, req, res) => {
-      gameServiceBreaker.recordFailure();
-      console.error('[Game Service Error]', err.message);
-      res.status(503).json({
-        error: 'Game service unavailable',
-        details: err.message
-      });
-    },
-    onProxyRes: (proxyRes, req, res) => {
-      if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
-        gameServiceBreaker.recordSuccess();
-      } else if (proxyRes.statusCode >= 500) {
-        gameServiceBreaker.recordFailure();
-      }
-    }
-  })(req, res, next);
+  gameServiceProxy(req, res, next);
 });
 
 // Route to Game Service (WebSocket)
@@ -190,22 +219,7 @@ app.use('/socket.io', (req, res, next) => {
       state: gameServiceBreaker.state
     });
   }
-
-  createProxyMiddleware({
-    target: process.env.GAME_SERVICE_URL,
-    changeOrigin: true,
-    ws: true,
-    onError: (err, req, res) => {
-      gameServiceBreaker.recordFailure();
-      console.error('[WebSocket Error]', err.message);
-      if (res) {
-        res.status(503).json({
-          error: 'WebSocket service unavailable',
-          details: err.message
-        });
-      }
-    }
-  })(req, res, next);
+  websocketProxy(req, res, next);
 });
 
 // ============================================
