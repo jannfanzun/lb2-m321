@@ -7,9 +7,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 let isShuttingDown = false;
 
-// ============================================
-// Circuit Breaker Implementation
-// ============================================
 class CircuitBreaker {
   constructor(name, failureThreshold = 5, resetTimeout = 60000) {
     this.name = name;
@@ -17,7 +14,7 @@ class CircuitBreaker {
     this.resetTimeout = resetTimeout;
     this.failureCount = 0;
     this.lastFailureTime = null;
-    this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
+    this.state = 'CLOSED';
   }
 
   recordSuccess() {
@@ -36,7 +33,6 @@ class CircuitBreaker {
       console.error(`[Circuit Breaker] ${this.name}: OPENED after ${this.failureCount} failures`);
       this.state = 'OPEN';
 
-      // Try to recover after resetTimeout
       setTimeout(() => {
         console.log(`[Circuit Breaker] ${this.name}: Attempting HALF_OPEN state`);
         this.state = 'HALF_OPEN';
@@ -58,16 +54,11 @@ class CircuitBreaker {
   }
 }
 
-// Initialize circuit breakers
 const userServiceBreaker = new CircuitBreaker('user-service', 5, 60000);
 const gameServiceBreaker = new CircuitBreaker('game-service', 5, 60000);
 
-// ============================================
-// Middleware
-// ============================================
 app.use(cors());
 
-// Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -77,9 +68,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ============================================
-// Health & Status Endpoints
-// ============================================
 app.get('/health', (req, res) => {
   if (isShuttingDown) {
     return res.status(503).json({
@@ -96,7 +84,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Circuit breaker status endpoint
 app.get('/status/circuit-breakers', (req, res) => {
   res.status(200).json({
     circuitBreakers: [
@@ -114,11 +101,6 @@ app.get('/ready', (req, res) => {
   res.status(200).json({ ready: true });
 });
 
-// ============================================
-// Create Proxy Middleware Instances (Once)
-// ============================================
-
-// User Service Proxy
 const userServiceProxy = createProxyMiddleware({
   target: process.env.USER_SERVICE_URL,
   changeOrigin: true,
@@ -144,7 +126,6 @@ const userServiceProxy = createProxyMiddleware({
   }
 });
 
-// Game Service Proxy
 const gameServiceProxy = createProxyMiddleware({
   target: process.env.GAME_SERVICE_URL,
   changeOrigin: true,
@@ -165,7 +146,6 @@ const gameServiceProxy = createProxyMiddleware({
   }
 });
 
-// WebSocket Proxy
 const websocketProxy = createProxyMiddleware({
   target: process.env.GAME_SERVICE_URL,
   changeOrigin: true,
@@ -182,11 +162,6 @@ const websocketProxy = createProxyMiddleware({
   }
 });
 
-// ============================================
-// Routes with Circuit Breaker Protection
-// ============================================
-
-// Route to User Service
 app.use('/api/users', (req, res, next) => {
   if (!userServiceBreaker.isAvailable()) {
     return res.status(503).json({
@@ -198,7 +173,6 @@ app.use('/api/users', (req, res, next) => {
   userServiceProxy(req, res, next);
 });
 
-// Route to Game Service (REST API)
 app.use('/api/games', (req, res, next) => {
   if (!gameServiceBreaker.isAvailable()) {
     return res.status(503).json({
@@ -210,7 +184,6 @@ app.use('/api/games', (req, res, next) => {
   gameServiceProxy(req, res, next);
 });
 
-// Route to Game Service (WebSocket)
 app.use('/socket.io', (req, res, next) => {
   if (!gameServiceBreaker.isAvailable()) {
     return res.status(503).json({
@@ -222,11 +195,6 @@ app.use('/socket.io', (req, res, next) => {
   websocketProxy(req, res, next);
 });
 
-// ============================================
-// Error Handling
-// ============================================
-
-// 404 Handler
 app.use((req, res) => {
   res.status(404).json({
     error: 'Route not found',
@@ -235,7 +203,6 @@ app.use((req, res) => {
   });
 });
 
-// Global Error Handler
 app.use((err, req, res, next) => {
   console.error('[Gateway Error]', err);
   res.status(500).json({
@@ -244,9 +211,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ============================================
-// Server Startup & Shutdown
-// ============================================
 const server = app.listen(PORT, () => {
   console.log(`[${new Date().toISOString()}] API Gateway running on port ${PORT}`);
   console.log(`[${new Date().toISOString()}] Routing to:`);
@@ -254,14 +218,10 @@ const server = app.listen(PORT, () => {
   console.log(`  - Game Service: ${process.env.GAME_SERVICE_URL}`);
 });
 
-// Handle WebSocket upgrade
 server.on('upgrade', (req, socket, head) => {
   console.log(`[${new Date().toISOString()}] WebSocket upgrade request: ${req.url}`);
 });
 
-// ============================================
-// Graceful Shutdown
-// ============================================
 async function gracefulShutdown(signal) {
   console.log(`\n[${new Date().toISOString()}] Received ${signal}. Starting graceful shutdown...`);
   isShuttingDown = true;
@@ -272,7 +232,6 @@ async function gracefulShutdown(signal) {
     process.exit(0);
   });
 
-  // Force shutdown after 30 seconds
   setTimeout(() => {
     console.error('[' + new Date().toISOString() + '] Graceful shutdown timeout, forcing exit');
     process.exit(1);

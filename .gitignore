@@ -35,4 +35,7 @@ build/
 coverage/
 .nyc_output/
 
+# Demo (nicht committen)
+DEMO-SCRIPT.md
+
 .claude
