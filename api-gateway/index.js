@@ -150,6 +150,12 @@ const websocketProxy = createProxyMiddleware({
   target: process.env.GAME_SERVICE_URL,
   changeOrigin: true,
   ws: true,
+  onProxyReq: (proxyReq, req, res) => {
+    // Forward the client IP to ensure sticky sessions work across the load balancer
+    const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    proxyReq.setHeader('X-Client-IP', clientIp);
+    console.log('[WebSocket Proxy] Routing WebSocket from IP:', clientIp);
+  },
   onError: (err, req, res) => {
     gameServiceBreaker.recordFailure();
     console.error('[WebSocket Error]', err.message);

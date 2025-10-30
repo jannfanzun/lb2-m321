@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # MongoDB Replica Set - Primary
   mongodb-primary:
@@ -87,6 +85,24 @@ services:
       - mongodb-secondary-2
     restart: on-failure
 
+  # Redis für Socket.IO Adapter (Multi-Instance Support)
+  redis:
+    image: redis:7-alpine
+    container_name: tictactoe-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+    healthcheck:
+      test: redis-cli ping
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
   # User Service - Instance 1
   user-service-1:
     build: ./user-service
@@ -145,10 +161,13 @@ services:
       PORT: 3002
       MONGODB_URI: mongodb://mongodb-primary:27017,mongodb-secondary-1:27017,mongodb-secondary-2:27017/tictactoe?replicaSet=tictactoe-rs
       USER_SERVICE_URL: http://user-service-lb:3001
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       NODE_ENV: production
     depends_on:
       - mongodb-primary
       - mongo-init-replica
+      - redis
     networks:
       - tictactoe-network
     restart: unless-stopped
@@ -168,10 +187,13 @@ services:
       PORT: 3002
       MONGODB_URI: mongodb://mongodb-primary:27017,mongodb-secondary-1:27017,mongodb-secondary-2:27017/tictactoe?replicaSet=tictactoe-rs
       USER_SERVICE_URL: http://user-service-lb:3001
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       NODE_ENV: production
     depends_on:
       - mongodb-primary
       - mongo-init-replica
+      - redis
     networks:
       - tictactoe-network
     restart: unless-stopped
@@ -271,3 +293,4 @@ volumes:
   mongodb_primary_data:
   mongodb_secondary_1_data:
   mongodb_secondary_2_data:
+  redis_data:

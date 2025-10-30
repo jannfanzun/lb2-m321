@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { createClient } = require('redis');
 const cors = require('cors');
 const connectDB = require('./config/database');
 const gameRoutes = require('./routes/gameRoutes');
@@ -13,11 +15,41 @@ const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST']
-  }
+  },
+  transports: ['websocket', 'polling']
 });
 
 const PORT = process.env.PORT || 3002;
 let isShuttingDown = false;
+
+// Redis setup for Socket.IO adapter
+let redisClient = null;
+
+async function setupRedisAdapter() {
+  try {
+    const pubClient = createClient({
+      host: process.env.REDIS_HOST || 'redis',
+      port: process.env.REDIS_PORT || 6379,
+      password: process.env.REDIS_PASSWORD || undefined
+    });
+
+    pubClient.on('error', err => console.log('Redis error:', err));
+    pubClient.on('connect', () => console.log('[' + new Date().toISOString() + '] Redis connected'));
+
+    await pubClient.connect();
+
+    const subClient = pubClient.duplicate();
+    await subClient.connect();
+
+    io.adapter(createAdapter(pubClient, subClient));
+    redisClient = pubClient;
+
+    console.log('[' + new Date().toISOString() + '] Socket.IO Redis adapter configured');
+  } catch (error) {
+    console.error('[' + new Date().toISOString() + '] Failed to setup Redis adapter:', error);
+    console.log('[' + new Date().toISOString() + '] Falling back to default adapter (single instance mode)');
+  }
+}
 
 // Middleware
 app.use(cors());
@@ -38,6 +70,9 @@ connectDB().catch(err => {
   console.error('Failed to connect to database:', err);
   process.exit(1);
 });
+
+// Setup Redis adapter
+setupRedisAdapter();
 
 // Routes
 app.use('/api/games', gameRoutes);
@@ -97,7 +132,7 @@ app.get('/ready', (req, res) => {
 });
 
 // Socket.IO
-socketHandler(io);
+socketHandler(io, redisClient);
 
 // Start server
 server.listen(PORT, () => {
@@ -120,6 +155,16 @@ async function gracefulShutdown(signal) {
   // Stop accepting new connections
   server.close(async () => {
     console.log('[' + new Date().toISOString() + '] HTTP server closed');
+
+    // Close Redis connection
+    if (redisClient) {
+      try {
+        await redisClient.quit();
+        console.log('[' + new Date().toISOString() + '] Redis disconnected');
+      } catch (error) {
+        console.error('Error disconnecting from Redis:', error);
+      }
+    }
 
     // Close database connection
     try {

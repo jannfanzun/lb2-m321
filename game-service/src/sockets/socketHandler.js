@@ -2,10 +2,23 @@ const Game = require('../models/Game');
 const Move = require('../models/Move');
 const gameLogic = require('../utils/gameLogic');
 
-// Store player connections
-const playerConnections = new Map(); // playerId -> { socketId, gameId }
+// Helper function to track player connections in Redis
+async function trackPlayerConnection(redis, playerId, socketId, gameId) {
+  if (redis) {
+    const key = `player:${playerId}`;
+    await redis.setex(key, 3600, JSON.stringify({ socketId, gameId }));
+  }
+}
 
-module.exports = (io) => {
+// Helper function to remove player connection from Redis
+async function removePlayerConnection(redis, playerId) {
+  if (redis) {
+    const key = `player:${playerId}`;
+    await redis.del(key);
+  }
+}
+
+module.exports = (io, redis) => {
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
@@ -14,8 +27,10 @@ module.exports = (io) => {
         const { gameId, playerId } = data;
         socket.join(gameId);
 
-        // Track player connection
-        playerConnections.set(playerId, { socketId: socket.id, gameId });
+        // Track player connection in Redis (with fallback if Redis unavailable)
+        if (redis) {
+          await trackPlayerConnection(redis, playerId, socket.id, gameId);
+        }
         socket.playerId = playerId;
         socket.gameId = gameId;
 
@@ -104,9 +119,9 @@ module.exports = (io) => {
           }
         }
 
-        // Clean up player connection
+        // Clean up player connection from Redis
         if (playerId) {
-          playerConnections.delete(playerId);
+          await removePlayerConnection(redis, playerId);
         }
         socket.leave(gameId);
         console.log(`Player ${playerId} left game ${gameId}`);
@@ -137,8 +152,8 @@ module.exports = (io) => {
             await game.save();
           }
 
-          // Clean up
-          playerConnections.delete(playerId);
+          // Clean up from Redis
+          await removePlayerConnection(redis, playerId);
         } catch (error) {
           console.error('Error handling disconnect:', error);
         }
